@@ -32,7 +32,6 @@ import torch
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
-
 class Cartpole(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):

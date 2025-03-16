@@ -129,8 +129,8 @@ class FrankaCabinet(VecTask):
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_envs(self, num_envs, spacing, num_per_row):
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
-        upper = gymapi.Vec3(spacing, spacing, spacing)
+        lower = gymapi.Vec3(-0.5*spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(0.5*spacing, spacing, 0.5*spacing)
 
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
         franka_asset_file = "urdf/franka_description/robots/franka_panda.urdf"
@@ -207,7 +207,7 @@ class FrankaCabinet(VecTask):
         prop_asset = self.gym.create_box(self.sim, self.prop_width, self.prop_height, self.prop_width, box_opts)
 
         franka_start_pose = gymapi.Transform()
-        franka_start_pose.p = gymapi.Vec3(1.0, 0.0, 0.0)
+        franka_start_pose.p = gymapi.Vec3(1.0, 2.0, 0.0)
         franka_start_pose.r = gymapi.Quat(0.0, 0.0, 1.0, 0.0)
 
         cabinet_start_pose = gymapi.Transform()
@@ -380,9 +380,11 @@ class FrankaCabinet(VecTask):
         dof_pos_scaled = (2.0 * (self.franka_dof_pos - self.franka_dof_lower_limits)
                           / (self.franka_dof_upper_limits - self.franka_dof_lower_limits) - 1.0)
         to_target = self.drawer_grasp_pos - self.franka_grasp_pos
+        # print(to_target)
         self.obs_buf = torch.cat((dof_pos_scaled, self.franka_dof_vel * self.dof_vel_scale, to_target,
                                   self.cabinet_dof_pos[:, 3].unsqueeze(-1), self.cabinet_dof_vel[:, 3].unsqueeze(-1)), dim=-1)
 
+        # print(self.obs_buf)
         return self.obs_buf
 
     def reset_idx(self, env_ids):
@@ -411,11 +413,11 @@ class FrankaCabinet(VecTask):
         self.gym.set_dof_position_target_tensor_indexed(self.sim,
                                                         gymtorch.unwrap_tensor(self.franka_dof_targets),
                                                         gymtorch.unwrap_tensor(multi_env_ids_int32), len(multi_env_ids_int32))
-
         self.gym.set_dof_state_tensor_indexed(self.sim,
                                               gymtorch.unwrap_tensor(self.dof_state),
                                               gymtorch.unwrap_tensor(multi_env_ids_int32), len(multi_env_ids_int32))
 
+        # print(self.dof_state)
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 

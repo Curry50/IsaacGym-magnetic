@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="tank2">
+  <link
+    name="tank2">
+    <inertial>
+      <origin
+        xyz="-1.95244133050806E-17 1.41995733127859E-17 0.0373554616777308"
+        rpy="0 0 0" />
+      <mass
+        value="0.238607999999999" />
+      <inertia
+        ixx="0.000998290363162338"
+        ixy="-5.34242208679008E-19"
+        ixz="1.09187840857E-19"
+        iyy="0.000998290363162339"
+        iyz="-1.29616434401474E-19"
+        izz="0.00148612924799999" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="-1.57079 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/tank2.STL" scale="2 2 2"/>
+      </geometry>
+      <material
+        name="tank2">
+        <color
+          rgba="1 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/tank2.STL" scale="2 2 2"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>
