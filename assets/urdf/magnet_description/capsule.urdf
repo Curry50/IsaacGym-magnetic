@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/capsule.stl" scale="0.001 0.001 0.001"/>
+          filename="meshes/capsule.stl" scale="0.0005 0.0005 0.0005"/>
       </geometry>
       <material
         name="capsule_base">

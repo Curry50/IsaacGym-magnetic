@@ -349,7 +349,7 @@ class MagneticUr5(VecTask):
         # pos_err = self.actions*0.01 + self.ur5_ee_pos_goal - self.rigid_body_states[:, self.ur5_ee_handle][:, 0:3]
         # orn_err = orientation_error(self.ur5_ee_rot_goal,self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7])
 
-        pos_err = self.actions[:,0:3]*0.006
+        pos_err = self.actions[:,0:3]*0.004
 
         ur5_ee_rot = self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7]
         orn_delta_euler = self.actions[:,3:6]*0.05
@@ -444,7 +444,7 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
     d = torch.norm(to_target, p=2, dim=-1)
     
     # 到达平衡点的奖励和到达目标点的奖励
-    dist_to_target_reward = 0.1*torch.exp(-d*50*10)-0.1
+    dist_to_target_reward = torch.exp(-d*50*10)-0.6
     # print(dist_to_target_reward)
     rot_to_target_reward = torch.exp(-abs(to_target_rot.squeeze())/torch.pi*10)
 
@@ -452,15 +452,15 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
     rewards = dist_to_target_reward + rot_to_target_reward
     # print(capsule_pos[63,:])
 
-    rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.025) |
-                          (abs(capsule_pos[:,1]-0.1)>0.025) |
-                          (abs(capsule_pos[:,2]-0.325)>0.025),rewards-60,rewards)
+    rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.035) |
+                          (abs(capsule_pos[:,1]-0.1)>0.035) |
+                          (abs(capsule_pos[:,2]-0.325)>0.035),rewards-100,rewards)
 
     reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),reset_buf)
 
-    reset_buf = torch.where(abs(capsule_pos[:,0]-0.5)>0.025,torch.ones_like(reset_buf),reset_buf)
-    reset_buf = torch.where(abs(capsule_pos[:,1]-0.1)>0.025,torch.ones_like(reset_buf),reset_buf)
-    reset_buf = torch.where(abs(capsule_pos[:,2]-0.325)>0.025,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,0]-0.5)>0.035,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,1]-0.1)>0.035,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,2]-0.325)>0.035,torch.ones_like(reset_buf),reset_buf)
 
 
     return rewards,reset_buf
