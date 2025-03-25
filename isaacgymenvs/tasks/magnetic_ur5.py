@@ -4,7 +4,7 @@ import torch
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
-from isaacgymenvs.utils.torch_jit_utils import to_torch, quaternion_to_matrix, tensor_clamp
+from isaacgymenvs.utils.torch_jit_utils import to_torch, quaternion_to_matrix, tensor_clamp,quat_diff_rad
 from isaacgym.torch_utils import quat_conjugate,quat_mul,get_euler_xyz,quat_from_euler_xyz
 
 class MagneticUr5(VecTask):
@@ -13,11 +13,11 @@ class MagneticUr5(VecTask):
         self.cfg = cfg
 
         self.damping = 0.15
-        self.max_episode_length = 1000
+        self.max_episode_length = 600
 
-        # self.cfg["env"]["numObservations"] = 18
-        self.cfg["env"]["numObservations"] = 15
-        self.cfg["env"]["numActions"] = 3
+        # self.cfg["env"]["numObservations"] = 14
+        self.cfg["env"]["numObservations"] = 21
+        self.cfg["env"]["numActions"] = 6
 
         self.debug_viz = True
 
@@ -29,10 +29,7 @@ class MagneticUr5(VecTask):
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
 
         # 更新相关张量
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.gym.refresh_jacobian_tensors(self.sim)
+        self.refresh_tensor()
 
         # 将关节状态张量,根刚体张量转换为torch.tensor
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
@@ -66,7 +63,7 @@ class MagneticUr5(VecTask):
         self.capsule_states = self.root_state_tensor[:, self.num_props-self.fixed_obj:self.num_props-3]
         self.magnet_states = self.root_state_tensor[:, self.num_props-3:self.num_props-2]
         self.tank1_states = self.root_state_tensor[:, self.num_props-2:self.num_props-1]
-        self.tank2_states = self.root_state_tensor[:,self.num_props-1:]
+        self.capsule_virtual_states = self.root_state_tensor[:,self.num_props-1:]
 
         # 设置磁体和胶囊的磁矩大小，设置平衡时的距离以及净重力
         self.moment_source_norm = 26.2
@@ -77,6 +74,7 @@ class MagneticUr5(VecTask):
 
         # 初始化胶囊的目标位置,胶囊的初始位置和平衡位置
         self.target_pos = torch.zeros((self.num_envs,3),device=self.device)
+        self.target_rot = torch.zeros((self.num_envs,4),device=self.device)
         self.capsule_start_pos = torch.tensor([0.5,0.1,0.325],device=self.device)
 
 
@@ -108,7 +106,7 @@ class MagneticUr5(VecTask):
         capsule_asset_file = "urdf/magnet_description/capsule.urdf"
         magnet_asset_file = "urdf/magnet_description/magnet.urdf"
         tank1_asset_file = "urdf/magnet_description/tank1.urdf"
-        tank2_asset_file = "urdf/magnet_description/tank2.urdf"
+        capsule_virtual_asset_file = "urdf/magnet_description/capsule_virtual.urdf"
 
         # 设置ur5的参数并加载ur5
         asset_options = gymapi.AssetOptions()
@@ -146,11 +144,7 @@ class MagneticUr5(VecTask):
         tank1_asset = self.gym.load_asset(self.sim,asset_root,tank1_asset_file,asset_options)
 
         asset_options.use_mesh_materials = False
-        tank2_asset = self.gym.load_asset(self.sim,asset_root,tank2_asset_file,asset_options)
-        tank2_props = self.gym.get_asset_rigid_shape_properties(tank2_asset)
-        for p in tank2_props:
-            p.restitution = 1 # 设置恢复系数
-        self.gym.set_asset_rigid_shape_properties(tank2_asset, tank2_props)
+        capsule_virtual_asset = self.gym.load_asset(self.sim,asset_root,capsule_virtual_asset_file,asset_options)
 
         tank1_props = self.gym.get_asset_rigid_shape_properties(tank1_asset)
         for p in tank1_props:
@@ -198,13 +192,13 @@ class MagneticUr5(VecTask):
 
         # 设置tank1的初始位置和姿态
         tank_start_pose = gymapi.Transform()
-        tank_start_pose.p = gymapi.Vec3(0.5,0.1,0.0)
+        tank_start_pose.p = gymapi.Vec3(0.5,0.1,0.2)
         tank_start_pose.r = gymapi.Quat(0.0000, 0.0, 0.0, 1.0)
 
-        # 设置tank2的初始位置和姿态
-        tank2_start_pose = gymapi.Transform()
-        tank2_start_pose.p = gymapi.Vec3(0.5,0.1,0.0)
-        tank2_start_pose.r = gymapi.Quat(0.0000, 0.0, 0.0, 1.0)
+        # 设置虚拟capsule的位置和姿态
+        capsule_virtual_start_pose = gymapi.Transform()
+        capsule_virtual_start_pose.p = gymapi.Vec3(0.5,0.1,0.325)
+        capsule_virtual_start_pose.r = gymapi.Quat(0.0,1.0,0.0,0.0)
     
 
         # 各个句柄
@@ -214,10 +208,9 @@ class MagneticUr5(VecTask):
         self.default_capsule_states = []
         self.default_magnet_states = []
         self.default_tank_states = []
-        self.default_tank2_states = []
+        self.default_capsule_virtual_states = []
         self.magnet_handles = []
         self.tank1_handles = []
-        self.tank2_handles = []
 
         # 遍历所有环境
         for i in range(self.num_envs):
@@ -230,7 +223,7 @@ class MagneticUr5(VecTask):
             capsule_handle = self.gym.create_actor(env_ptr,capsule_asset,capsule_start_pose,"capsule",i,0,0)
             magnet_handle = self.gym.create_actor(env_ptr,magnet_asset,magnet_start_pose,"magnet",i,0,0)
             tank1_handle = self.gym.create_actor(env_ptr,tank1_asset,tank_start_pose,"tank1",i,0,0)
-            tank2_handle = self.gym.create_actor(env_ptr,tank2_asset,tank2_start_pose,"tank2",i,0,0)
+            capsule_virtual_handle = self.gym.create_actor(env_ptr,capsule_virtual_asset,capsule_virtual_start_pose,"capsule_virtual",i,0,0)
 
             # 设置ur5的关节属性
             self.gym.set_actor_dof_properties(env_ptr, ur5_handle, ur5_dof_props)
@@ -247,8 +240,8 @@ class MagneticUr5(VecTask):
                                                tank_start_pose.r.x,tank_start_pose.r.y,tank_start_pose.r.z,tank_start_pose.r.w,
                                                0,0,0,0,0,0])
             
-            self.default_tank2_states.append([tank2_start_pose.p.x,tank2_start_pose.p.y,tank2_start_pose.p.z,
-                                               tank2_start_pose.r.x,tank2_start_pose.r.y,tank2_start_pose.r.z,tank2_start_pose.r.w,
+            self.default_capsule_virtual_states.append([capsule_virtual_start_pose.p.x,capsule_virtual_start_pose.p.y,capsule_virtual_start_pose.p.z,
+                                               capsule_virtual_start_pose.r.x,capsule_virtual_start_pose.r.y,capsule_virtual_start_pose.r.z,capsule_virtual_start_pose.r.w,
                                                0,0,0,0,0,0])           
 
             self.envs.append(env_ptr)
@@ -271,41 +264,42 @@ class MagneticUr5(VecTask):
         self.default_capsule_states = to_torch(self.default_capsule_states, device=self.device, dtype=torch.float).view(self.num_envs, 1, 13)
         self.default_magnet_states = to_torch(self.default_magnet_states, device=self.device,dtype=torch.float).view(self.num_envs, 1, 13)
         self.default_tank_states = to_torch(self.default_tank_states, device=self.device,dtype=torch.float).view(self.num_envs, 1, 13)
-        self.default_tank2_states = to_torch(self.default_tank2_states, device=self.device,dtype=torch.float).view(self.num_envs, 1, 13)
+        self.default_capsule_virtual_states = to_torch(self.default_capsule_virtual_states, device=self.device,dtype=torch.float).view(self.num_envs, 1, 13)
 
     def compute_reward(self):
         self.rew_buf[:],self.reset_buf[:] = compute_ur5_reward(
             self.reset_buf,self.progress_buf,self.max_episode_length,self.to_target,
-            self.to_balance
+            self.to_balance,self.to_target_rot,self.capsule_pos
         )
 
     def compute_observations(self):
         # 更新状态张量
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.gym.refresh_jacobian_tensors(self.sim)
-
-        # 更新ur5的位姿
-        ur5_ee_pos = self.rigid_body_states[:, self.ur5_ee_handle][:, 0:3]
-        ur5_ee_rot = self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7]
+        self.refresh_tensor()
         
         # 胶囊位置到目标位置的坐标差，胶囊位置到平衡位置的坐标差
         self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
-        self.magnet_pos = self.magnet_states[:,:,0:3].clone().to(self.device).squeeze()
+        self.capsule_rot = self.capsule_states[:,:,3:7].clone().to(self.device).squeeze()
+        self.magnet_pos = self.magnet_states[:,:,0:3].squeeze()
+        self.magnet_rot = self.magnet_states[:,:,3:7].squeeze()
         balance_point = self.magnet_pos+self.magnet_balance_dis
         self.to_balance = balance_point-self.capsule_pos
-        self.to_target = self.target_pos - self.capsule_pos        
+        self.to_target = self.target_pos - self.capsule_pos
+        self.to_target_rot = quat_diff_rad(self.capsule_rot,self.target_rot).unsqueeze(1)
 
         # self.obs_buf = torch.cat((self.capsule_pos,self.magnet_pos,self.target_pos,self.ur5_dof_pos,self.to_target),dim=-1)
-        self.obs_buf = torch.cat((self.capsule_pos,self.magnet_pos,self.target_pos,self.to_balance,self.to_target),dim=-1)
+        self.obs_buf = torch.cat((self.capsule_pos,self.target_pos,
+                                  self.capsule_rot,self.target_rot,
+                                  self.magnet_pos,self.magnet_rot),dim=-1)
 
         return self.obs_buf
 
     def reset_idx(self,env_ids):
         # 设定随机目标点
         self.target_pos[env_ids,] = to_torch([0.5,0.1,0.325],device=self.device)+\
-                                (torch.rand((len(env_ids),3),device=self.device)*0.2-0.1)*0.5
+                                (torch.rand((len(env_ids),3),device=self.device)*0.01-0.005)
+        
+        self.target_rot[env_ids,] = to_torch([0.0, 9.8769e-01, -1.5643e-01, 0.0],device=self.device)
+        self.target_capsule_states = torch.cat((self.target_pos,self.target_rot),dim=-1).unsqueeze(1)
 
         # 环境id的全局索引，此处的切片为ur5的全局索引
         multi_env_ids_int32 = self.global_indices[env_ids, :self.num_props-self.fixed_obj].flatten()
@@ -329,7 +323,7 @@ class MagneticUr5(VecTask):
         self.magnet_states[env_ids] = self.default_magnet_states[env_ids]
         self.capsule_states[env_ids,:] = self.default_capsule_states[env_ids,:]
         self.tank1_states[env_ids] = self.default_tank_states[env_ids]
-        self.tank2_states[env_ids] = self.default_tank2_states[env_ids]
+        self.capsule_virtual_states[env_ids,:,0:7] = self.target_capsule_states[env_ids]
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                     gymtorch.unwrap_tensor(self.root_state_tensor),
                                                     gymtorch.unwrap_tensor(prop_indices), len(prop_indices))
@@ -344,21 +338,25 @@ class MagneticUr5(VecTask):
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
             self.gym.simulate(self.sim)
-            self.gym.refresh_actor_root_state_tensor(self.sim)
-            self.gym.refresh_dof_state_tensor(self.sim)
-            self.gym.refresh_rigid_body_state_tensor(self.sim)
-            self.gym.refresh_jacobian_tensors(self.sim)
+            self.refresh_tensor()
 
         # actions的范围为（-1，1）
         self.actions = actions.clone().to(self.device)
 
+        self.capsule_vel = self.capsule_states.clone().to(self.device)[:,:,7:13].squeeze()
+
         # 计算位置和姿态的误差，求解逆运动学
         # pos_err = self.actions*0.01 + self.ur5_ee_pos_goal - self.rigid_body_states[:, self.ur5_ee_handle][:, 0:3]
-        self.actions[:,2] = self.actions[:,2]*0.01
-        self.actions[:,1] = self.actions[:,1]*0.01
-        self.actions[:,0] = self.actions[:,0]*0.01
-        pos_err = self.actions
-        orn_err = orientation_error(self.ur5_ee_rot_goal,self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7])
+        # orn_err = orientation_error(self.ur5_ee_rot_goal,self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7])
+
+        pos_err = self.actions[:,0:3]*0.006
+
+        ur5_ee_rot = self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7]
+        orn_delta_euler = self.actions[:,3:6]*0.05
+        orn_delta_quat = quat_from_euler_xyz(orn_delta_euler[:,0],orn_delta_euler[:,1],orn_delta_euler[:,2])
+        orn_desired = quat_mul(ur5_ee_rot,orn_delta_quat)
+        orn_err = orientation_error(orn_desired,ur5_ee_rot)
+
         dpose = torch.cat([pos_err, orn_err], -1).unsqueeze(-1)
         targets = self.ur5_dof_pos+control_ik(dpose.to(self.device),
                                             self.damping,self.j_eef,self.num_envs,self.device)
@@ -369,6 +367,8 @@ class MagneticUr5(VecTask):
 
         # 设置ur5关节目标角度
         self.gym.set_dof_position_target_tensor(self.sim,gymtorch.unwrap_tensor(self.ur5_dof_targets))
+        # self.gym.simulate(self.sim)
+        # self.refresh_tensor()
 
         # 更新并设置磁体的目标位姿
         ur5_ee_pos = self.rigid_body_states[:, self.ur5_ee_handle, 0:3]
@@ -378,11 +378,8 @@ class MagneticUr5(VecTask):
         self.magnet_states[:] = torch.cat((magnet_pos,magnet_rot,magnet_vel),dim=-1)
 
         self.gym.set_actor_root_state_tensor(self.sim,gymtorch.unwrap_tensor(self.root_state_tensor))
-        self.gym.simulate(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.gym.refresh_jacobian_tensors(self.sim)
+        # self.gym.simulate(self.sim)
+        # self.refresh_tensor()
 
         # 计算磁矩
         magnet_rot_matrix = quaternion_to_matrix(magnet_rot)
@@ -401,7 +398,8 @@ class MagneticUr5(VecTask):
             fluid_drag_force = 0
         else:
             capsule_vel_vector = capsule_vel/torch.norm(capsule_vel,p=2,dim=-1,keepdim=True)
-            fluid_drag_force = -0.5*1000*0.4*0.001256*torch.square(capsule_vel)*capsule_vel_vector
+            capsule_vel_norm = torch.norm(capsule_vel,p=2,dim=-1,keepdim=True)
+            fluid_drag_force = -0.5*1000*0.4*0.001256*capsule_vel_norm**2*capsule_vel_vector
             
         # 设置磁力和磁力矩
         force_tensor = torch.zeros(self.num_envs*15,3,device=self.device)
@@ -410,7 +408,7 @@ class MagneticUr5(VecTask):
         force_tensor[11: :15,:] = magnetic_force.squeeze(1)+self.net_weight.unsqueeze(0)+fluid_drag_force
 
         self.gym.apply_rigid_body_force_tensors(self.sim,gymtorch.unwrap_tensor(force_tensor), 
-                                                gymtorch.unwrap_tensor(torque_tensor*0), gymapi.ENV_SPACE)
+                                                gymtorch.unwrap_tensor(torque_tensor), gymapi.ENV_SPACE)
         
 
     def post_physics_step(self):
@@ -432,25 +430,38 @@ class MagneticUr5(VecTask):
         #         self.gym.add_lines(self.viewer,self.envs[i],1,[p_start[0],p_start[1],p_start[2],p_end_y[0],p_end_y[1],p_end_y[2]],[0.0, 1.0, 0.0])
         #         self.gym.add_lines(self.viewer,self.envs[i],1,[p_start[0],p_start[1],p_start[2],p_end_z[0],p_end_z[1],p_end_z[2]],[0.0, 0.0, 1.0])
 
-
+    def refresh_tensor(self):
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_jacobian_tensors(self.sim)
 
 @torch.jit.script
 def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
-                       to_balance):
-    # type: (Tensor, Tensor, float, Tensor,Tensor) -> Tuple[Tensor, Tensor]
+                       to_balance,to_target_rot,capsule_pos):
+    # type: (Tensor, Tensor, float, Tensor,Tensor,Tensor,Tensor) -> Tuple[Tensor, Tensor]
 
     d = torch.norm(to_target, p=2, dim=-1)
-    dist_to_balance = torch.norm(to_balance,p=2,dim=-1)
-
+    
     # 到达平衡点的奖励和到达目标点的奖励
-    dist_to_target_reward = -0.1+1/(1+(d**2)*10000)
-    dist_to_balance_reward = torch.exp(-dist_to_balance*10)
+    dist_to_target_reward = 0.1*torch.exp(-d*50*10)-0.1
+    # print(dist_to_target_reward)
+    rot_to_target_reward = torch.exp(-abs(to_target_rot.squeeze())/torch.pi*10)
 
     # 总奖励
-    rewards = dist_to_target_reward + dist_to_balance_reward
+    rewards = dist_to_target_reward + rot_to_target_reward
+    # print(capsule_pos[63,:])
+
+    rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.025) |
+                          (abs(capsule_pos[:,1]-0.1)>0.025) |
+                          (abs(capsule_pos[:,2]-0.325)>0.025),rewards-60,rewards)
 
     reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),reset_buf)
-    reset_buf = torch.where(dist_to_balance>0.01,torch.ones_like(reset_buf), reset_buf)
+
+    reset_buf = torch.where(abs(capsule_pos[:,0]-0.5)>0.025,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,1]-0.1)>0.025,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,2]-0.325)>0.025,torch.ones_like(reset_buf),reset_buf)
+
 
     return rewards,reset_buf
 

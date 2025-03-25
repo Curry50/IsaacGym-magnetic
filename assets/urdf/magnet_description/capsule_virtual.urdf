@@ -31,7 +31,7 @@
       <material
         name="capsule_base">
         <color
-          rgba="1 0 0 1" />
+          rgba="1 1 1 1" />
       </material>
     </visual>
     <!-- <collision>

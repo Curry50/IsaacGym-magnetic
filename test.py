@@ -40,8 +40,8 @@ def calculate_magnet_pose(ur5_ee_pos,ur5_ee_rot):
     # magnet_rot_quat.unsqueeze(1)
     return magnet_pos,magnet_rot_quat
 
-a = to_torch([[torch.pi/2,torch.pi,0],
-              [torch.pi,0,0]])
+a = to_torch([[0.0,torch.pi,0],
+              [torch.pi/10,torch.pi,0]])
 # print(a[:,0].shape)
 # b = quat_from_euler_xyz(a[:,0],a[:,1],a[:,2])
 # c = to_torch([1,1,1]).unsqueeze(0)
@@ -107,4 +107,13 @@ p = torch.tensor([[0.1,0.1,0.1],
                 [0.2,0.2,0.2]])
 
 force,torque = force_moment(p,ma,mc)
+
+a = torch.tensor([[1.,2.,3.],[4.,5.,6.]])
+b = torch.tensor([[1.,2.,3.],[4.,5.,6.]])
+norm = torch.norm(a,p=2,dim=-1,keepdim=True)
+a_hat = a/norm
+print(torch.square(a)*a_hat)
+print(norm**2*a_hat)
+print(norm)
+
 
