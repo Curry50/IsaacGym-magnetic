@@ -3,6 +3,8 @@ name: MagneticUr5
 
 physics_engine: ${..physics_engine}
 
+test: ${..test}
+
 # if given, will override the device setting in gym. 
 env:
   numEnvs: ${resolve_default:16,${...num_envs}}
@@ -20,7 +22,7 @@ env:
 
 sim:
   dt: 0.0166 # 1/60 s
-  substeps: 4
+  substeps: 2
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]

@@ -116,4 +116,6 @@ print(torch.square(a)*a_hat)
 print(norm**2*a_hat)
 print(norm)
 
+print(14 % 14)
+
 
