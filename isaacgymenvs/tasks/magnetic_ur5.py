@@ -15,7 +15,7 @@ class MagneticUr5(VecTask):
         self.cfg = cfg
 
         self.damping = 0.15
-        self.max_episode_length = 500
+        self.max_episode_length = 1200
 
         # self.cfg["env"]["numObservations"] = 14
         self.cfg["env"]["numObservations"] = 9
@@ -343,29 +343,15 @@ class MagneticUr5(VecTask):
             self.gym.simulate(self.sim)
             self.refresh_tensor()
 
-        # self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
-        # self.to_target = self.target_pos - self.capsule_pos
-        # d = torch.norm(self.to_target, p=2, dim=-1)
-        # self.reset_buf = torch.where(d < 0.0045,torch.ones_like(self.reset_buf),self.reset_buf)
-        # env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        # if len(env_ids) > 0:
-        #     if not self.cfg["test"]:
-        #         self.reset_random_target(env_ids)
-        #         self.reset_buffer(env_ids)
-        #     else:
-        #         self.max_episode_length = 10000
-        #         self.reset_path_target(env_ids,self.path_count)
-        #         self.reset_buf[env_ids] = 0
-        #         self.path_count[env_ids,] += 1 
-
-        #         if self.path_count[self.num_envs-1,0] == 12:
-        #             self.plot_result_path()
-        #             self.position_errors = []
-        #             self.capsule_pos_cpu = []
-        #             self.time_steps = []
-                
-        #         self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
-
+        self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
+        self.to_target = self.target_pos - self.capsule_pos
+        d = torch.norm(self.to_target, p=2, dim=-1)
+        if not self.cfg["test"]:
+            self.reset_buf = torch.where(d < 0.0025,torch.ones_like(self.reset_buf),self.reset_buf)
+            env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        if len(env_ids) > 0:
+            self.reset_random_target(env_ids)
+            self.reset_buffer(env_ids)
 
         # actions的范围为（-1，1）
         self.actions = actions.clone().to(self.device)
@@ -445,28 +431,11 @@ class MagneticUr5(VecTask):
             self.position_errors.append(last_position_error)
             self.capsule_pos_cpu_list.append(self.capsule_pos_cpu)
             self.time_steps.append(self.cfg["sim"]["dt"]*self.progress_buf[self.num_envs-1].squeeze().cpu().numpy())
-
-        self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
-        self.to_target = self.target_pos - self.capsule_pos
-        d = torch.norm(self.to_target, p=2, dim=-1)
-        self.reset_buf = torch.where(d < 0.0035,torch.ones_like(self.reset_buf),self.reset_buf)
-        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        if len(env_ids) > 0:
-            if not self.cfg["test"]:
-                self.reset_random_target(env_ids)
-                self.reset_buffer(env_ids)
-            else:
-                if self.path_count[self.num_envs-1,0] == 12:
-                    self.plot_result_path()
-                    # self.position_errors = []
-                    # self.capsule_pos_cpu = []
-                    self.time_steps = []
-                
-                self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
-                self.max_episode_length = 100000
-                self.reset_path_target(env_ids,self.path_count)
-                self.reset_buf[env_ids] = 0
-                self.path_count[env_ids,] += 1 
+        
+        if self.cfg["test"] and self.progress_buf[self.num_envs-1] >= 1200:
+            self.plot_result_error()
+            self.position_errors = []
+            self.time_steps = []
 
     def refresh_tensor(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -477,7 +446,7 @@ class MagneticUr5(VecTask):
     def reset_random_target(self,env_ids):
         prop_indices = self.global_indices[env_ids, 1:].flatten()
 
-        fixed_distance = 0.01
+        fixed_distance = 0.025
         random_directions = torch.randn((self.num_envs,3),device=self.device)
         norms = torch.norm(random_directions,dim=1,p=2,keepdim=True)        
         unit_directions = random_directions/norms
@@ -589,15 +558,12 @@ class MagneticUr5(VecTask):
         ax.set_zticks(np.arange(0.25,0.4,0.025)) # Z轴从-2到2，间隔0.5
 
         # 添加标签和标题
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('3d plot')
+        ax.set_xlabel('X',fontsize=16)
+        ax.set_ylabel('Y',fontsize=16)
+        ax.set_zlabel('Z',fontsize=16)
+        ax.set_title('trajectory',fontsize=18)
 
-        # 添加颜色条
-        # fig.colorbar(scatter, ax=ax, label='Z')
-
-        plt.tight_layout()
+        # plt.tight_layout()
         plt.show()
 
     def square_wave_path(self):
@@ -628,22 +594,22 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
     
     # 到达平衡点的奖励和到达目标点的奖励
     # dist_to_target_reward = 0.1*torch.exp(-d*50)-0.1
-    dist_to_target_reward = -d*10
+    dist_to_target_reward = -d*2
 
     # 总奖励
     rewards = dist_to_target_reward
 
-    rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.06) | # 0.01 0.015
-                          (abs(capsule_pos[:,1]-0.1)>0.06) |
-                          (abs(capsule_pos[:,2]-0.325)>0.06),rewards-30,rewards)
+    rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.08) | # 0.01 0.015
+                          (abs(capsule_pos[:,1]-0.1)>0.08) |
+                          (abs(capsule_pos[:,2]-0.325)>0.08),rewards-60,rewards)
     
-    rewards = torch.where(d < 0.005,rewards+20,rewards)
+    rewards = torch.where(d < 0.0025,rewards+40,rewards)
 
     reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),reset_buf)
 
-    reset_buf = torch.where(abs(capsule_pos[:,0]-0.5)>0.06,torch.ones_like(reset_buf),reset_buf)
-    reset_buf = torch.where(abs(capsule_pos[:,1]-0.1)>0.06,torch.ones_like(reset_buf),reset_buf)
-    reset_buf = torch.where(abs(capsule_pos[:,2]-0.325)>0.06,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,0]-0.5)>0.08,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,1]-0.1)>0.08,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(abs(capsule_pos[:,2]-0.325)>0.08,torch.ones_like(reset_buf),reset_buf)
 
 
     return rewards,reset_buf
