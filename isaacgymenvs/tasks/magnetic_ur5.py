@@ -570,23 +570,23 @@ class MagneticUr5(VecTask):
         fig = plt.figure(figsize=(10, 6))
         ax = fig.add_subplot(111,projection='3d')
 
-        ax.scatter(x, y, z,color='red', s=1)
-        ax.plot(x_d,y_d,z_d,color='blue',linewidth=1)
+        ax.scatter(x, y, z,color='red', s=1,label='actual path')
+        ax.plot(x_d,y_d,z_d,color='blue',linewidth=1,label='desired path')
 
         ax.set_xticks(np.arange(0.425,0.575,0.025))  # X轴从0到10，间隔2
         ax.set_yticks(np.arange(0.025,0.175,0.025))   # Y轴从0到5，间隔1
         ax.set_zticks(np.arange(0.25,0.4,0.025)) # Z轴从-2到2，间隔0.5
+        # ax.zaxis.set_ticks([])
 
         # 添加标签和标题
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
-        ax.set_title('trajectory')
+        ax.set_title('Trajectory')
 
-        # 添加颜色条
-        # fig.colorbar(scatter, ax=ax, label='Z')
+        # ax.view_init(elev=90, azim=0)
 
-        plt.tight_layout()
+        plt.legend()
         plt.show()
 
     def square_wave_path(self):
