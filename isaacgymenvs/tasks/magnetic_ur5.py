@@ -17,7 +17,6 @@ class MagneticUr5(VecTask):
         self.damping = 0.15
         self.max_episode_length = 500
 
-        # self.cfg["env"]["numObservations"] = 14
         self.cfg["env"]["numObservations"] = 9
         self.cfg["env"]["numActions"] = 3
 
@@ -79,6 +78,7 @@ class MagneticUr5(VecTask):
         self.target_rot = torch.zeros((self.num_envs,4),device=self.device)
         self.capsule_start_pos = torch.tensor([0.5,0.1,0.325],device=self.device)
 
+        # 画图所需的变量
         self.time_steps = []
         self.position_errors = []
         self.capsule_pos_cpu_list = []
@@ -333,6 +333,7 @@ class MagneticUr5(VecTask):
             
     def pre_physics_step(self,actions):
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+
         # 到达一定条件进行reset
         if len(env_ids) > 0:
             self.reset_ur5(env_ids)
@@ -342,30 +343,6 @@ class MagneticUr5(VecTask):
             self.reset_buffer(env_ids)
             self.gym.simulate(self.sim)
             self.refresh_tensor()
-
-        # self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
-        # self.to_target = self.target_pos - self.capsule_pos
-        # d = torch.norm(self.to_target, p=2, dim=-1)
-        # self.reset_buf = torch.where(d < 0.0045,torch.ones_like(self.reset_buf),self.reset_buf)
-        # env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        # if len(env_ids) > 0:
-        #     if not self.cfg["test"]:
-        #         self.reset_random_target(env_ids)
-        #         self.reset_buffer(env_ids)
-        #     else:
-        #         self.max_episode_length = 10000
-        #         self.reset_path_target(env_ids,self.path_count)
-        #         self.reset_buf[env_ids] = 0
-        #         self.path_count[env_ids,] += 1 
-
-        #         if self.path_count[self.num_envs-1,0] == 12:
-        #             self.plot_result_path()
-        #             self.position_errors = []
-        #             self.capsule_pos_cpu = []
-        #             self.time_steps = []
-                
-        #         self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
-
 
         # actions的范围为（-1，1）
         self.actions = actions.clone().to(self.device)
@@ -437,6 +414,7 @@ class MagneticUr5(VecTask):
         self.compute_observations()
         self.compute_reward()
         
+        # 如果test=True，
         if self.cfg["test"] is True:
             self.capsule_pos_cpu = self.capsule_states[self.num_envs-1,:,0:3].squeeze().cpu().numpy()
             last_capsule_pos = self.capsule_pos_cpu
@@ -445,28 +423,35 @@ class MagneticUr5(VecTask):
             self.position_errors.append(last_position_error)
             self.capsule_pos_cpu_list.append(self.capsule_pos_cpu)
             self.time_steps.append(self.cfg["sim"]["dt"]*self.progress_buf[self.num_envs-1].squeeze().cpu().numpy())
-
+        
+        # 如果距离目标的距离小于0.0035，则更新目标点
         self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
         self.to_target = self.target_pos - self.capsule_pos
         d = torch.norm(self.to_target, p=2, dim=-1)
         self.reset_buf = torch.where(d < 0.0035,torch.ones_like(self.reset_buf),self.reset_buf)
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+
+        # 如果有环境需要重置
         if len(env_ids) > 0:
+            # 如果在训练
             if not self.cfg["test"]:
+                # 更新目标和buffer
                 self.reset_random_target(env_ids)
                 self.reset_buffer(env_ids)
+            # 如果在测试
             else:
-                if self.path_count[self.num_envs-1,0] == 12:
+                # 如果最后一个环境走完了一圈，画出轨迹图
+                if self.path_count[self.num_envs-1] == 12:
                     self.plot_result_path()
-                    # self.position_errors = []
-                    # self.capsule_pos_cpu = []
-                    self.time_steps = []
                 
+                # reset相关变量
                 self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
-                self.max_episode_length = 100000
                 self.reset_path_target(env_ids,self.path_count)
                 self.reset_buf[env_ids] = 0
-                self.path_count[env_ids,] += 1 
+                self.progress_buf[env_ids] = 0
+
+                # count计数
+                self.path_count[env_ids] += 1 
 
     def refresh_tensor(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -477,16 +462,18 @@ class MagneticUr5(VecTask):
     def reset_random_target(self,env_ids):
         prop_indices = self.global_indices[env_ids, 1:].flatten()
 
+        # 随机目标点距离当前点0.01
         fixed_distance = 0.01
+
+        # 计算方向向量
         random_directions = torch.randn((self.num_envs,3),device=self.device)
         norms = torch.norm(random_directions,dim=1,p=2,keepdim=True)        
         unit_directions = random_directions/norms
-        # print(unit_directions)
-        self.target_pos[env_ids] = self.capsule_pos[env_ids] + unit_directions[env_ids] * fixed_distance
         
+        # 更新目标
+        self.target_pos[env_ids] = self.capsule_pos[env_ids] + unit_directions[env_ids] * fixed_distance
         self.target_rot[env_ids,] = to_torch([0.0, 1.0, 0.0, 0.0],device=self.device)
         self.target_capsule_states = torch.cat((self.target_pos,self.target_rot),dim=-1).unsqueeze(1)
-
         self.capsule_virtual_states[env_ids,:,0:7] = self.target_capsule_states[env_ids]
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                             gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -495,6 +482,7 @@ class MagneticUr5(VecTask):
     def reset_path_target(self,env_ids,path_count):
         prop_indices = self.global_indices[env_ids, 1:].flatten()
 
+        # 设置矩形路径
         delta_path = torch.zeros((self.num_envs,12,3),device=self.device)
         for i in range(1,4):
             delta_path[:,i-1,:] = to_torch([0.0,-0.01*i,0.0],device=self.device)
@@ -506,7 +494,6 @@ class MagneticUr5(VecTask):
             delta_path[:,i-1,:] = to_torch([0.0,0.0,0.03-0.01*(i-9)],device=self.device)
 
         self.target_pos[env_ids,0:3] = torch.tensor([0.5,0.1,0.325],device=self.device) + delta_path[env_ids,path_count[env_ids].squeeze(),:]
-        print(path_count[env_ids])
 
         self.target_rot[env_ids,] = to_torch([0.0, 1.0, 0.0, 0.0],device=self.device)
         self.target_capsule_states = torch.cat((self.target_pos,self.target_rot),dim=-1).unsqueeze(1)
@@ -534,11 +521,11 @@ class MagneticUr5(VecTask):
                                                     gymtorch.unwrap_tensor(prop_indices), len(prop_indices))
 
     def reset_ur5(self,env_ids):
+        # 计算逆运动学，获得关节角度
         j_eef = self.jacobian[env_ids, self.ur5_ee_index-1, :, :6]
 
         ur5_ee_pos= to_torch([0.5,0.1,0.6],device=self.device)
         ur5_ee_rot = to_torch([0.0000, 0.7071, 0.0000, 0.7071],device=self.device)+torch.zeros((len(env_ids),4),device=self.device)
-
 
         pos_err =(ur5_ee_pos - self.rigid_body_states[env_ids, self.ur5_ee_handle][:, 0:3])
         orn_err = orientation_error(ur5_ee_rot,self.rigid_body_states[env_ids, self.ur5_ee_handle][:, 3:7])
@@ -575,6 +562,7 @@ class MagneticUr5(VecTask):
 
     def plot_result_path(self):
         x,y,z = [],[],[]
+        x_d,y_d,z_d = [0.5,0.5,0.5,0.5,0.5],[0.1,0.07,0.07,0.1,0.1],[0.325,0.325,0.355,0.355,0.325]
         for i in range(len(self.capsule_pos_cpu_list)):
             x.append(self.capsule_pos_cpu_list[i][0])
             y.append(self.capsule_pos_cpu_list[i][1])
@@ -582,7 +570,8 @@ class MagneticUr5(VecTask):
         fig = plt.figure(figsize=(10, 6))
         ax = fig.add_subplot(111,projection='3d')
 
-        scatter = ax.scatter(x, y, z,color='red', s=1)
+        ax.scatter(x, y, z,color='red', s=1)
+        ax.plot(x_d,y_d,z_d,color='blue',linewidth=1)
 
         ax.set_xticks(np.arange(0.425,0.575,0.025))  # X轴从0到10，间隔2
         ax.set_yticks(np.arange(0.025,0.175,0.025))   # Y轴从0到5，间隔1
@@ -592,7 +581,7 @@ class MagneticUr5(VecTask):
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
-        ax.set_title('3d plot')
+        ax.set_title('trajectory')
 
         # 添加颜色条
         # fig.colorbar(scatter, ax=ax, label='Z')
