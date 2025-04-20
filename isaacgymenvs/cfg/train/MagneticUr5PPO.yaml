@@ -44,15 +44,15 @@ params:
     normalize_value: True
     num_actors: ${....task.env.numEnvs}
     reward_shaper:
-      scale_value: 0.1
+      scale_value: 1
     normalize_advantage: True
     gamma: 0.99
     tau: 0.95
     learning_rate: 3e-4
     lr_schedule: adaptive
     kl_threshold: 0.008
-    score_to_win: 1200
-    max_epochs: ${resolve_default:1000,${....max_iterations}}
+    score_to_win: 100000
+    max_epochs: ${resolve_default:2000,${....max_iterations}}
     save_best_after: 25
     save_frequency: 50
     grad_norm: 1.0
