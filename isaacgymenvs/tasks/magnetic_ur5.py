@@ -17,8 +17,8 @@ class MagneticUr5(VecTask):
         self.damping = 0.15
         self.max_episode_length = 200
 
-        self.cfg["env"]["numObservations"] = 27
-        self.cfg["env"]["numActions"] = 6
+        self.cfg["env"]["numObservations"] = 30
+        self.cfg["env"]["numActions"] = 5
 
         self.debug_viz = True
 
@@ -287,7 +287,8 @@ class MagneticUr5(VecTask):
     def compute_reward(self,actions):
         self.rew_buf[:],self.reset_buf[:] = compute_ur5_reward(
             self.reset_buf,self.progress_buf,self.max_episode_length,self.to_target,
-            self.capsule_pos,self.to_target_rot,self.capsule_vel,self.balance_point,actions
+            self.capsule_pos,self.to_target_rot,self.capsule_vel,self.capsule_rot_vel,actions
+            ,self.balance_point
         )
 
     def compute_observations(self):
@@ -306,7 +307,7 @@ class MagneticUr5(VecTask):
 
         self.obs_buf = torch.cat((self.capsule_pos,self.target_pos,self.magnet_pos,
                                   self.capsule_rot,self.target_rot,self.magnet_rot,
-                                  self.capsule_vel,self.balance_point),dim=-1)
+                                  self.capsule_vel,self.capsule_rot_vel,self.balance_point),dim=-1)
 
         return self.obs_buf
 
@@ -335,7 +336,8 @@ class MagneticUr5(VecTask):
         unit_directions = random_directions/norms
 
         # 设定随机目标点
-        self.target_pos[env_ids,] = to_torch([0.5,0.1,0.325],device=self.device) + unit_directions[env_ids] * fixed_distance                              
+        self.target_pos[env_ids,] = to_torch([0.5,0.1,0.325],device=self.device) \
+            + unit_directions[env_ids] * fixed_distance                              
         
         self.target_rot[env_ids,] = to_torch([0.0,  1.0, 0.0, 0.0],device=self.device) # 默认为[0,1,0,0]
         self.target_capsule_states = torch.cat((self.target_pos,self.target_rot),dim=-1).unsqueeze(1)
@@ -387,7 +389,7 @@ class MagneticUr5(VecTask):
             self.refresh_tensor()
             self.last_capsule_states[env_ids_el] = self.capsule_states[env_ids_el] # 上一时刻胶囊的状态=这一时刻胶囊的状态
             self.ur5_last_dof_pos[env_ids_el] = self.ur5_dof_pos[env_ids_el]
-            self.last_capsule_virtual_states[env_ids_el] = self.capsule_virtual_states[env_ids_el]  
+            self.last_capsule_virtual_states[env_ids_el] = self.capsule_virtual_states[env_ids_el] 
             self.reset_buffer(env_ids_el)  
 
         if len(env_ids_d) > 0:
@@ -403,15 +405,19 @@ class MagneticUr5(VecTask):
         self.actions = actions.clone().to(self.device)
 
         self.capsule_vel = self.capsule_states.clone().to(self.device)[:,:,7:10].squeeze()
+        self.capsule_rot_vel = self.capsule_states.clone().to(self.device)[:,:,10:13].squeeze()
 
         # 计算位置和姿态的误差，求解逆运动学
         # pos_err = self.actions*0.01 + self.ur5_ee_pos_goal - self.rigid_body_states[:, self.ur5_ee_handle][:, 0:3]
 
-        pos_err = self.actions[:,0:3]*0.01
+        pos_err = self.actions[:,0:3]
+        pos_err[:,0] = self.actions[:,0]*0.01
+        pos_err[:,1] = self.actions[:,1]*0.0005
+        pos_err[:,2] = self.actions[:,2]*0.0005
 
         ur5_ee_rot = self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7]
-        orn_delta_euler = self.actions[:,3:]*0.05
-        orn_delta_quat = quat_from_euler_xyz(orn_delta_euler[:,0]*0,orn_delta_euler[:,1],orn_delta_euler[:,2])
+        orn_delta_euler = self.actions[:,3:]*0.04
+        orn_delta_quat = quat_from_euler_xyz(orn_delta_euler[:,0]*0,orn_delta_euler[:,0],orn_delta_euler[:,1])
         orn_desired = quat_mul(ur5_ee_rot,orn_delta_quat)
         orn_err = orientation_error(orn_desired,ur5_ee_rot)
 
@@ -592,35 +598,42 @@ class MagneticUr5(VecTask):
 
 @torch.jit.script
 def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
-                       capsule_pos,to_target_rot,capsule_vel,balance_point,actions):
-    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+                       capsule_pos,to_target_rot,capsule_vel,capsule_rot_vel,actions,balance_point):
+    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
 
     d = torch.norm(to_target, p=2, dim=-1)
     d_balance = torch.norm(capsule_pos-balance_point,p=2,dim=-1)
 
     # 旋转的大小
     action_rot_norm = torch.norm(actions[:,3:],p=2,dim=-1)
-    action_translation_norm = torch.norm(actions[:,0:3],p=2,dim=-1)
+    action_translation_norm_xy = torch.norm(actions[:,0:2],p=2,dim=-1)
 
     # 到达平衡点的奖励和到达目标点的奖励
-    target_rot_arrived = abs(to_target_rot.squeeze()) <= torch.pi/60
-    target_rot_not_arrived = abs(to_target_rot.squeeze()) > torch.pi/60
+    target_rot_arrived = abs(to_target_rot.squeeze()) <= torch.pi/90
+    target_rot_not_arrived = abs(to_target_rot.squeeze()) > torch.pi/90
+    target_d_arrived = d <= 0.0035
 
-    rot_to_target_reward = -abs(to_target_rot.squeeze())*20
-    capsule_vel_reward = torch.exp(-torch.norm(capsule_vel,p=2,dim=-1) * 100)
-    dist_to_target_reward = -50 * d
-    dist_to_balance_reward = -10 * d_balance
-    action_rot_reward = -1 * target_rot_arrived * action_rot_norm
-    action_translation_reward = -0.5 * target_rot_not_arrived * action_translation_norm
+    rot_to_target_reward = -abs(to_target_rot.squeeze())*10
+    dist_to_target_reward = -30 * d
+    dist_to_balance_reward = -20 * d_balance
+    action_rot_reward = -2 * target_rot_arrived * action_rot_norm
+    action_translation_reward = -2 * target_rot_not_arrived * action_translation_norm_xy
+
+    capsule_vel_norm_xy = torch.norm(capsule_vel[:,0:2],p=2,dim=-1)
+    capsule_rot_vel_norm = torch.norm(capsule_rot_vel[:,:],p=2,dim=-1)
+    capsule_rot_reward = -10 * target_rot_arrived * capsule_rot_vel_norm
+    capsule_translation_reward = -10 * target_rot_not_arrived * capsule_vel_norm_xy
 
     # 总奖励
-    rewards = dist_to_target_reward + rot_to_target_reward + dist_to_balance_reward*0
+    rewards = dist_to_target_reward + rot_to_target_reward + \
+                capsule_rot_reward + capsule_translation_reward + dist_to_balance_reward\
+                + action_rot_reward + action_translation_reward
 
     rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.06) | # 0.01 0.015
                           (abs(capsule_pos[:,1]-0.1)>0.06) |
-                          (abs(capsule_pos[:,2]-0.325)>0.06),rewards-100,rewards)
+                          (abs(capsule_pos[:,2]-0.325)>0.06),rewards-120,rewards)
     
-    rewards = torch.where(d <= 0.0035,rewards+40,rewards)
+    rewards = torch.where(d <= 0.0035,rewards+100,rewards)
 
     # 包含max_episode_length和工作空间的reset信息
     reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),reset_buf)
