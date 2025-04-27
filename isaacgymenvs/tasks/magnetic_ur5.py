@@ -17,7 +17,7 @@ class MagneticUr5(VecTask):
         self.damping = 0.15
         self.max_episode_length = 200
 
-        self.cfg["env"]["numObservations"] = 30
+        self.cfg["env"]["numObservations"] = 27
         self.cfg["env"]["numActions"] = 5
 
         self.debug_viz = True
@@ -307,7 +307,7 @@ class MagneticUr5(VecTask):
 
         self.obs_buf = torch.cat((self.capsule_pos,self.target_pos,self.magnet_pos,
                                   self.capsule_rot,self.target_rot,self.magnet_rot,
-                                  self.capsule_vel,self.capsule_rot_vel,self.balance_point),dim=-1)
+                                  self.capsule_vel,self.capsule_rot_vel),dim=-1)
 
         return self.obs_buf
 
@@ -412,8 +412,8 @@ class MagneticUr5(VecTask):
 
         pos_err = self.actions[:,0:3]
         pos_err[:,0] = self.actions[:,0]*0.01
-        pos_err[:,1] = self.actions[:,1]*0.0005
-        pos_err[:,2] = self.actions[:,2]*0.0005
+        pos_err[:,1] = self.actions[:,1]*0.01
+        pos_err[:,2] = self.actions[:,2]*0.01
 
         ur5_ee_rot = self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7]
         orn_delta_euler = self.actions[:,3:]*0.04
@@ -625,8 +625,8 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
     capsule_translation_reward = -10 * target_rot_not_arrived * capsule_vel_norm_xy
 
     # 总奖励
-    rewards = dist_to_target_reward + rot_to_target_reward + \
-                capsule_rot_reward + capsule_translation_reward + dist_to_balance_reward\
+    rewards = dist_to_target_reward + rot_to_target_reward\
+                + capsule_rot_reward + capsule_translation_reward \
                 + action_rot_reward + action_translation_reward
 
     rewards = torch.where((abs(capsule_pos[:,0]-0.5)>0.06) | # 0.01 0.015
