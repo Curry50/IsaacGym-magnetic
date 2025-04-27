@@ -585,28 +585,9 @@ class MagneticUr5(VecTask):
         ax.set_title('Trajectory')
 
         # ax.view_init(elev=90, azim=0)
-
         plt.legend()
-        plt.show()
-
-    def square_wave_path(self):
-        A = 0.01
-        T = 0.04
-        L = 2 * T
-        num_points = 10
-
-        t = torch.linspace(0,L,num_points,device=self.device)
-        y = t
-        z = A * torch.where(torch.sin(2 * torch.pi * t / T) >= 0, 0.0, -1.0)
-        x = torch.zeros_like(t)
-
-        if self.viewer and self.debug_viz:
-            self.gym.clear_lines(self.viewer)
-            for i in range(self.num_envs):
-                for j in range(num_points - 1):
-                    p_start = torch.tensor([x[j]+0.5,y[j]+0.1,z[j]+0.325],device=self.device).cpu().numpy()
-                    p_end = torch.tensor([x[j+1]+0.5,y[j+1]+0.1,z[j+1]+0.325],device=self.device).cpu().numpy()
-                    self.gym.add_lines(self.viewer,self.envs[i],1,[p_start,p_end],[0.0,0.0,1.0])
+        plt.savefig('../model/trajectory.png')
+        # plt.show()
 
 @torch.jit.script
 def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
