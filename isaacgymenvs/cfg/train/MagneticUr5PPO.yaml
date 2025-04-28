@@ -52,7 +52,7 @@ params:
     lr_schedule: adaptive
     kl_threshold: 0.008
     score_to_win: 1200
-    max_epochs: ${resolve_default:1000,${....max_iterations}}
+    max_epochs: ${resolve_default:500,${....max_iterations}}
     save_best_after: 25
     save_frequency: 50
     grad_norm: 1.0

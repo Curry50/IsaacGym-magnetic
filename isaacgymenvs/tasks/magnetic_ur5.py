@@ -344,6 +344,35 @@ class MagneticUr5(VecTask):
             self.gym.simulate(self.sim)
             self.refresh_tensor()
 
+        # 如果距离目标的距离小于0.0035，则更新目标点
+        self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
+        self.to_target = self.target_pos - self.capsule_pos
+        d = torch.norm(self.to_target, p=2, dim=-1)
+        self.reset_buf = torch.where(d < 0.0035,torch.ones_like(self.reset_buf),self.reset_buf)
+        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+
+        # 如果有环境需要重置
+        if len(env_ids) > 0:
+            # 如果在训练
+            if not self.cfg["test"]:
+                # 更新目标和buffer
+                self.reset_random_target(env_ids)
+                self.reset_buffer(env_ids)
+            # 如果在测试
+            else:
+                # 如果最后一个环境走完了一圈，画出轨迹图
+                if self.path_count[self.num_envs-1] == 12:
+                    self.plot_result_path()
+                
+                # reset相关变量
+                self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
+                self.reset_path_target(env_ids,self.path_count)
+                self.reset_buf[env_ids] = 0
+                self.progress_buf[env_ids] = 0
+
+                # count计数
+                self.path_count[env_ids] += 1 
+
         # actions的范围为（-1，1）
         self.actions = actions.clone().to(self.device)
 
@@ -424,34 +453,34 @@ class MagneticUr5(VecTask):
             self.capsule_pos_cpu_list.append(self.capsule_pos_cpu)
             self.time_steps.append(self.cfg["sim"]["dt"]*self.progress_buf[self.num_envs-1].squeeze().cpu().numpy())
         
-        # 如果距离目标的距离小于0.0035，则更新目标点
-        self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
-        self.to_target = self.target_pos - self.capsule_pos
-        d = torch.norm(self.to_target, p=2, dim=-1)
-        self.reset_buf = torch.where(d < 0.0035,torch.ones_like(self.reset_buf),self.reset_buf)
-        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        # # 如果距离目标的距离小于0.0035，则更新目标点
+        # self.capsule_pos = self.capsule_states[:,:,0:3].clone().to(self.device).squeeze()
+        # self.to_target = self.target_pos - self.capsule_pos
+        # d = torch.norm(self.to_target, p=2, dim=-1)
+        # self.reset_buf = torch.where(d < 0.0035,torch.ones_like(self.reset_buf),self.reset_buf)
+        # env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
 
-        # 如果有环境需要重置
-        if len(env_ids) > 0:
-            # 如果在训练
-            if not self.cfg["test"]:
-                # 更新目标和buffer
-                self.reset_random_target(env_ids)
-                self.reset_buffer(env_ids)
-            # 如果在测试
-            else:
-                # 如果最后一个环境走完了一圈，画出轨迹图
-                if self.path_count[self.num_envs-1] == 12:
-                    self.plot_result_path()
+        # # 如果有环境需要重置
+        # if len(env_ids) > 0:
+        #     # 如果在训练
+        #     if not self.cfg["test"]:
+        #         # 更新目标和buffer
+        #         self.reset_random_target(env_ids)
+        #         self.reset_buffer(env_ids)
+        #     # 如果在测试
+        #     else:
+        #         # 如果最后一个环境走完了一圈，画出轨迹图
+        #         if self.path_count[self.num_envs-1] == 12:
+        #             self.plot_result_path()
                 
-                # reset相关变量
-                self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
-                self.reset_path_target(env_ids,self.path_count)
-                self.reset_buf[env_ids] = 0
-                self.progress_buf[env_ids] = 0
+        #         # reset相关变量
+        #         self.path_count = torch.where(self.path_count==12,torch.zeros_like(self.path_count),self.path_count)
+        #         self.reset_path_target(env_ids,self.path_count)
+        #         self.reset_buf[env_ids] = 0
+        #         self.progress_buf[env_ids] = 0
 
-                # count计数
-                self.path_count[env_ids] += 1 
+        #         # count计数
+        #         self.path_count[env_ids] += 1 
 
     def refresh_tensor(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
