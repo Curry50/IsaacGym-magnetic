@@ -41,7 +41,7 @@ def calculate_magnet_pose(ur5_ee_pos,ur5_ee_rot):
     return magnet_pos,magnet_rot_quat
 
 a = to_torch([[0.0,torch.pi,0],
-              [torch.pi/2,torch.pi,0]])
+              [torch.pi/6,torch.pi,0]])
 # print(a[:,0].shape)
 # b = quat_from_euler_xyz(a[:,0],a[:,1],a[:,2])
 # c = to_torch([1,1,1]).unsqueeze(0)
