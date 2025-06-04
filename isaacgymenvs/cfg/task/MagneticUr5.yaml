@@ -20,6 +20,12 @@ env:
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
+  # viewer cam:
+  viewer:
+    refEnv: 0
+    pos: [1, 0, 0.2]  # [m]
+    lookat: [0, 0, 0.2]  # [m]
+
 sim:
   dt: 0.02 # 1/50 s
   substeps: 2
@@ -30,10 +36,10 @@ sim:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
     use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
-    num_position_iterations: 2
-    num_velocity_iterations: 0
+    num_position_iterations: 4
+    num_velocity_iterations: 1
     contact_offset: 0.02
-    rest_offset: 0.001
+    rest_offset: 0.0
     bounce_threshold_velocity: 0.2
     max_depenetration_velocity: 100.0
     default_buffer_size_multiplier: 2.0

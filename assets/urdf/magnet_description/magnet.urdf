@@ -34,7 +34,7 @@
           rgba="1 0 0 1" />
       </material>
     </visual>
-    <collision>
+    <!-- <collision>
       <origin
         xyz="0 0 0"
         rpy="0 0 0" />
@@ -42,7 +42,7 @@
         <mesh
           filename="meshes/north_link.STL" />
       </geometry>
-    </collision>
+    </collision> -->
   </link>
   <link
     name="south_link">
@@ -74,7 +74,7 @@
           rgba="0 0 1 1" />
       </material>
     </visual>
-    <collision>
+    <!-- <collision>
       <origin
         xyz="0 0 0"
         rpy="0 0 0" />
@@ -82,7 +82,7 @@
         <mesh
           filename="meshes/south_link.STL" />
       </geometry>
-    </collision>
+    </collision> -->
   </link>
   <joint
     name="fixed_joint"

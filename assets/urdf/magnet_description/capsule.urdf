@@ -34,14 +34,14 @@
           rgba="1 0 0 1" />
       </material>
     </visual>
-    <!-- <collision>
+    <collision>
       <origin
         xyz="0 0 0"
         rpy="1.5707 0 0" />
       <geometry>
         <mesh
-          filename="meshes/capsule.stl" scale="0.001 0.001 0.001"/>
+          filename="meshes/capsule.stl" scale="0.0005 0.0005 0.0005"/>
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 </robot>
