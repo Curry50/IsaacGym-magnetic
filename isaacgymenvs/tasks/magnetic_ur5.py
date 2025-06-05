@@ -15,10 +15,10 @@ class MagneticUr5(VecTask):
         self.cfg = cfg
 
         self.damping = 0.15
-        self.max_episode_length = 1000 # 600
+        self.max_episode_length = 300 # 600
 
-        self.cfg["env"]["numObservations"] = 20
-        self.cfg["env"]["numActions"] = 5
+        self.cfg["env"]["numObservations"] = 6
+        self.cfg["env"]["numActions"] = 2
 
         self.debug_viz = True
 
@@ -89,13 +89,11 @@ class MagneticUr5(VecTask):
         # 初始化胶囊的目标位置,胶囊的初始位置和平衡位置
         self.target_pos = torch.zeros((self.num_envs,3),device=self.device)
         self.target_rot = torch.zeros((self.num_envs,4),device=self.device)
-        self.capsule_start_pos = torch.tensor([0.5,0.1,0.03],device=self.device)
+        self.capsule_start_pos = torch.tensor([0.5,0.1,0.0227],device=self.device)
 
-        # 设置磁体和胶囊的磁矩大小，设置平衡时的距离以及净重力
+        # 设置磁体和胶囊的磁矩大小
         self.moment_source_norm = 26.2 # 26.2
         self.moment_capsule_norm = 0.126
-        self.magnet_balance_dis = torch.zeros((self.num_envs,3),device=self.device)
-        self.magnet_balance_dis[:] = torch.tensor([0,0,0.25],device=self.device)
 
         # 初始化相关变量
         self.last_capsule_states = torch.zeros_like(self.capsule_states,device=self.device)
@@ -110,7 +108,7 @@ class MagneticUr5(VecTask):
 
         # 设置目标点与胶囊的距离以及目标姿态
         self.target_dis = 0.01
-        self.target_ori = to_torch([-1.1313e-08,  9.6593e-01, -2.5882e-01, -4.2222e-08],device=self.device) # 默认为[0,1,0,0]
+        self.target_ori = to_torch([7.0711e-01, -3.0909e-08, -7.0711e-01, -3.0909e-08],device=self.device) # 默认为[0,1,0,0]
 
         # 设置工作空间的大小
         self.ws_length = 0.2
@@ -120,7 +118,7 @@ class MagneticUr5(VecTask):
         self.theta_min = torch.pi/30
 
         # 缩放尺度
-        self.action_trans_scale = 0.01*0
+        self.action_trans_scale = 0.01
         self.action_rot_scale = 0.05*0
         self.drag_force_scale = 4e-2
         self.drag_torque_scale = 5e-6
@@ -176,8 +174,8 @@ class MagneticUr5(VecTask):
         capsule_props = self.gym.get_asset_rigid_shape_properties(capsule_asset)
         for p in capsule_props:
             p.restitution = 0.2 # 设置恢复系数
-            p.rolling_friction = 0.03
-            p.friction = 0.03
+            p.rolling_friction = 0.005
+            p.friction = 0.0015
             # p.torsion_friction = 0.1
         self.gym.set_asset_rigid_shape_properties(capsule_asset, capsule_props)
 
@@ -202,8 +200,8 @@ class MagneticUr5(VecTask):
         tank1_props = self.gym.get_asset_rigid_shape_properties(tank1_asset)
         for p in tank1_props:
             p.restitution = 0.2 # 设置恢复系数
-            p.rolling_friction = 0.03
-            p.friction = 0.03
+            p.rolling_friction = 0.005
+            p.friction = 0.0015
             # p.torsion_friction = 0.1
         self.gym.set_asset_rigid_shape_properties(tank1_asset, tank1_props)
 
@@ -238,7 +236,7 @@ class MagneticUr5(VecTask):
 
         # 设置capsule的初始位置和姿态
         capsule_start_pose = gymapi.Transform()
-        capsule_start_pose.p = gymapi.Vec3(0.5,0.1,0.03)
+        capsule_start_pose.p = gymapi.Vec3(0.5,0.1,0.0227)
         capsule_start_pose.r = gymapi.Quat(7.0711e-01, -3.0909e-08, -7.0711e-01, -3.0909e-08) # (0,1,0,0)
 
         # 设置magnet的初始位置和姿态
@@ -248,13 +246,13 @@ class MagneticUr5(VecTask):
 
         # 设置tank1的初始位置和姿态
         tank_start_pose = gymapi.Transform()
-        tank_start_pose.p = gymapi.Vec3(0.5,0.1,0.0)
+        tank_start_pose.p = gymapi.Vec3(0.45,0.1,0.0)
         tank_start_pose.r = gymapi.Quat(0.0000, 0.0, 0.0, 1.0)
 
         # 设置虚拟capsule的位置和姿态
         capsule_virtual_start_pose = gymapi.Transform()
-        capsule_virtual_start_pose.p = gymapi.Vec3(0.5,0.1,0.325)
-        capsule_virtual_start_pose.r = gymapi.Quat(0.0,1.0,0.0,0.0)
+        capsule_virtual_start_pose.p = gymapi.Vec3(0.5,0.1,0.0227)
+        capsule_virtual_start_pose.r = gymapi.Quat(7.0711e-01, -3.0909e-08, -7.0711e-01, -3.0909e-08)
     
 
         # 各个句柄
@@ -343,11 +341,7 @@ class MagneticUr5(VecTask):
         self.to_target = self.target_pos - self.capsule_pos
         self.to_target_rot = quat_diff_rad(self.capsule_rot,self.target_rot).unsqueeze(1)
 
-        self.balance_point = self.magnet_pos - self.magnet_balance_dis
-
-        self.obs_buf = torch.cat((self.capsule_pos,self.target_pos,
-                                  self.capsule_rot,self.target_rot,
-                                  self.capsule_vel,self.capsule_rot_vel),dim=-1)
+        self.obs_buf = torch.cat((self.capsule_pos,self.target_pos),dim=-1)
 
         return self.obs_buf
 
@@ -369,12 +363,13 @@ class MagneticUr5(VecTask):
 
         # 计算方向向量
         random_directions = torch.randn((self.num_envs,3),device=self.device)
+        random_directions[:,2] = torch.zeros((self.num_envs),device=self.device)
         norms = torch.norm(random_directions,dim=1,p=2,keepdim=True)        
         unit_directions = random_directions/norms
 
         # 设定随机目标点
         self.target_pos[env_ids,] = self.capsule_start_pos \
-            + unit_directions[env_ids] * self.target_dis * 0                          
+            + unit_directions[env_ids] * self.target_dis                          
         
         self.target_rot[env_ids,] = self.target_ori
         self.target_capsule_states = torch.cat((self.target_pos,self.target_rot),dim=-1).unsqueeze(1)
@@ -401,6 +396,7 @@ class MagneticUr5(VecTask):
 
         # 计算方向向量
         random_directions = torch.randn((self.num_envs,3),device=self.device)
+        random_directions[:,2] = torch.zeros((self.num_envs),device=self.device)
         norms = torch.norm(random_directions,dim=1,p=2,keepdim=True)        
         unit_directions = random_directions/norms
         
@@ -450,13 +446,13 @@ class MagneticUr5(VecTask):
                         (abs(self.capsule_pos[:,1]-self.capsule_start_pos[1])>self.ws_length) |
                         (abs(self.capsule_pos[:,2]-self.capsule_start_pos[2])>self.ws_length),torch.ones_like(self.reset_buf),torch.zeros_like(self.reset_buf))
         
-        # 超出最大步数的标志符
-        self.reset_el_buf: torch.Tensor = torch.where(self.progress_buf >= self.max_episode_length,torch.ones_like(self.reset_buf),torch.zeros_like(self.reset_buf))
+        # 超出最大步数的标志符``
+        d = torch.norm(self.to_target, p=2, dim=-1)
+        self.reset_el_buf: torch.Tensor = torch.where((self.progress_buf >= self.max_episode_length)&(d > self.d_min),torch.ones_like(self.reset_buf),torch.zeros_like(self.reset_buf))
 
         # 达到目标位姿的标志符
-        d = torch.norm(self.to_target, p=2, dim=-1)
         target_rot_arrived = abs(self.to_target_rot.squeeze()) <= self.theta_min
-        self.reset_d_buf = torch.where((d <= self.d_min)&(target_rot_arrived),torch.ones_like(self.reset_buf),torch.zeros_like(self.reset_buf))
+        self.reset_d_buf = torch.where((d <= self.d_min)&(self.progress_buf >= self.max_episode_length),torch.ones_like(self.reset_buf),torch.zeros_like(self.reset_buf))
 
         # 超出工作空间的环境id，大于最大步数的环境id，达到目标的环境id
         env_ids_ws = self.reset_ws_buf.nonzero(as_tuple=False).flatten()
@@ -482,14 +478,14 @@ class MagneticUr5(VecTask):
             self.ur5_last_dof_pos[env_ids_el] = self.ur5_dof_pos[env_ids_el]
             self.last_capsule_virtual_states[env_ids_el] = self.capsule_virtual_states[env_ids_el]  
 
-        # if len(env_ids_d) > 0:
-        #     self.reset_random_target(env_ids_d)
-        #     self.gym.simulate(self.sim)
-        #     self.refresh_tensor()
-        #     self.last_capsule_states[env_ids_d] = self.capsule_states[env_ids_d] # 上一时刻胶囊的状态=这一时刻胶囊的状态
-        #     self.ur5_last_dof_pos[env_ids_d] = self.ur5_dof_pos[env_ids_d]
-        #     self.last_capsule_virtual_states[env_ids_d] = self.capsule_virtual_states[env_ids_d] 
-        #     self.reset_buffer(env_ids_d) 
+        if len(env_ids_d) > 0:
+            self.reset_random_target(env_ids_d)
+            self.gym.simulate(self.sim)
+            self.refresh_tensor()
+            self.last_capsule_states[env_ids_d] = self.capsule_states[env_ids_d] # 上一时刻胶囊的状态=这一时刻胶囊的状态
+            self.ur5_last_dof_pos[env_ids_d] = self.ur5_dof_pos[env_ids_d]
+            self.last_capsule_virtual_states[env_ids_d] = self.capsule_virtual_states[env_ids_d] 
+            self.reset_buffer(env_ids_d) 
 
         # actions的范围为（-1，1）
         self.actions = actions.clone().to(self.device)
@@ -498,16 +494,16 @@ class MagneticUr5(VecTask):
         self.capsule_rot_vel = self.capsule_states.clone().to(self.device)[:,:,10:13].squeeze()
 
         ur5_ee_rot = self.rigid_body_states[:, self.ur5_ee_handle][:, 3:7]
-        orn_delta_euler = self.actions[:,3:]*self.action_rot_scale
-        orn_delta_quat = quat_from_euler_xyz(orn_delta_euler[:,0]*0,orn_delta_euler[:,0],orn_delta_euler[:,1])
-        orn_desired = quat_mul(ur5_ee_rot,orn_delta_quat)
+        # orn_delta_euler = self.actions[:,3:]*self.action_rot_scale
+        # orn_delta_quat = quat_from_euler_xyz(orn_delta_euler[:,0]*0,orn_delta_euler[:,0],orn_delta_euler[:,1])
+        # orn_desired = quat_mul(ur5_ee_rot,orn_delta_quat)
 
-        # orn_desired = self.ur5_ee_rot_goal
-        # pos_err = self.ur5_ee_pos_goal - self.rigid_body_states[:, self.ur5_ee_handle][:, 0:3]
+        orn_desired = self.ur5_ee_rot_goal
+        pos_err = self.ur5_ee_pos_goal - self.rigid_body_states[:, self.ur5_ee_handle][:, 0:3]
 
         # 位置误差和姿态误差，计算逆运动学
         orn_err = orientation_error(orn_desired,ur5_ee_rot)
-        pos_err = self.actions[:,0:3]*self.action_trans_scale + self.translation
+        pos_err[:,0:2] = self.actions[:,0:2]*self.action_trans_scale
         dpose = torch.cat([pos_err, orn_err], -1).unsqueeze(-1)
         targets = self.ur5_dof_pos+control_ik(dpose.to(self.device),
                                             self.damping,self.j_eef,self.num_envs,self.device)
@@ -520,6 +516,7 @@ class MagneticUr5(VecTask):
         self.gym.set_dof_position_target_tensor(self.sim,gymtorch.unwrap_tensor(self.ur5_dof_targets))
 
         # print(self.ur5_dof_pos[0])
+        # print(self.capsule_pos[0])
 
         # 更新并设置磁体的目标位姿
         ur5_ee_pos = self.rigid_body_states[:, self.ur5_ee_handle, 0:3]
@@ -581,14 +578,18 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
 
 
     # 总奖励
-    rewards = dist_to_target_reward + rot_to_target_reward
+    rewards = dist_to_target_reward + rot_to_target_reward*0
 
     rewards = torch.where((abs(capsule_pos[:,0]-capsule_start_pos[0])>ws_length) | # 0.01 0.015
                           (abs(capsule_pos[:,1]-capsule_start_pos[1])>ws_length) |
-                          (abs(capsule_pos[:,2]-capsule_start_pos[2])>ws_length),rewards-200,rewards)
+                          (abs(capsule_pos[:,2]-capsule_start_pos[2])>ws_length),rewards-80,rewards)
+    
+    rewards = torch.where((d <= d_min)&(progress_buf >= max_episode_length),rewards+80,rewards)
 
     # 包含max_episode_length和工作空间的reset信息
-    reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where((progress_buf >= max_episode_length)&(d > d_min),torch.ones_like(reset_buf),reset_buf)
+
+    reset_buf = torch.where((d <= d_min)&(progress_buf >= max_episode_length),torch.ones_like(reset_buf),reset_buf)
 
     reset_buf = torch.where(abs(capsule_pos[:,0]-capsule_start_pos[0])>ws_length,torch.ones_like(reset_buf),reset_buf)
     reset_buf = torch.where(abs(capsule_pos[:,1]-capsule_start_pos[1])>ws_length,torch.ones_like(reset_buf),reset_buf)
