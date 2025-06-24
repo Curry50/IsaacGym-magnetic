@@ -2,6 +2,7 @@ from isaacgym.torch_utils import quat_conjugate,quat_mul,get_euler_xyz,quat_from
 from isaacgymenvs.utils.torch_jit_utils import to_torch
 import numpy as np
 import torch
+from isaacgymenvs.utils.torch_jit_utils import quat_diff_rad
 
 def quat_from_euler_xyz(roll, pitch, yaw):
     cy = torch.cos(yaw * 0.5)
@@ -40,8 +41,8 @@ def calculate_magnet_pose(ur5_ee_pos,ur5_ee_rot):
     # magnet_rot_quat.unsqueeze(1)
     return magnet_pos,magnet_rot_quat
 
-a = to_torch([[torch.pi,torch.pi/2,0],
-              [torch.pi/6,torch.pi,0]])
+a = to_torch([[torch.pi*5/6,torch.pi/2,0],
+              [0.0,torch.pi/2,torch.pi/2]])
 # print(a[:,0].shape)
 # b = quat_from_euler_xyz(a[:,0],a[:,1],a[:,2])
 # c = to_torch([1,1,1]).unsqueeze(0)
@@ -118,4 +119,11 @@ print(norm)
 
 print(14 % 14)
 
+target_ori = to_torch([6.8301e-01, -1.8301e-01, -6.8301e-01, -1.8301e-01],device="cuda:0")
+init_ori = to_torch([7.0711e-01, -3.0909e-08, -7.0711e-01, -3.0909e-08],device="cuda:0")
+print(quat_diff_rad(target_ori.unsqueeze(0),init_ori.unsqueeze(0)))
 
+a,b,c = get_euler_xyz(to_torch([7.0711e-01, -3.0909e-08, -7.0711e-01, -3.0909e-08],device="cuda:0").unsqueeze(0))
+print(a)
+print(b)
+print(c)

@@ -46,7 +46,7 @@ params:
     reward_shaper:
       scale_value: 1
     normalize_advantage: True
-    gamma: 0.995
+    gamma: 0.99
     tau: 0.95
     learning_rate: 5e-4
     lr_schedule: adaptive
@@ -59,8 +59,8 @@ params:
     entropy_coef: 0.0
     truncate_grads: True
     e_clip: 0.2
-    horizon_length: 12
-    minibatch_size: 2048
+    horizon_length: 48
+    minibatch_size: 4096
     mini_epochs: 6
     critic_coef: 4
     clip_value: True
