@@ -651,10 +651,19 @@ def force_moment(p, ma, mc, device, num_envs):
 
     # 磁源在某点产生的磁场梯度矩阵
     gradient = 3 * k / (4*torch.pi*pow(p_norm,4))*(ma@p_hat_trans+p_hat@ma_trans+(p_hat_trans@ma)*(eye_3-5*(p_hat@p_hat_trans)))
-    S_mc = torch.tensor([[0.0, float(-mc[0,2, 0]), float(mc[0,1, 0])],
-                   [float(mc[0,2, 0]), 0.0, float(-mc[0,0, 0])],
-                   [float(-mc[0,1, 0]), float(mc[0,0, 0]), 0.0]],device=device)
-    torch.tensor(S_mc.unsqueeze(0).expand(num_envs,3,3))
+    x = mc[:, 0, 0]  # (n,)
+    y = mc[:, 1, 0]  # (n,)
+    z = mc[:, 2, 0]  # (n,)
+
+    zeros = torch.zeros_like(x)
+
+    S_mc = torch.stack([
+        torch.stack([zeros, -z, y], dim=1),
+        torch.stack([z, zeros, -x], dim=1),
+        torch.stack([-y, x, zeros], dim=1)
+        ], dim=1)  # (n, 3, 3)
+    force = torch.matmul(gradient,mc).view(num_envs,1,3)
+    moment = torch.matmul(S_mc,field).view(num_envs,1,3)
     force = torch.matmul(gradient,mc).view(num_envs,1,3)
     moment = torch.matmul(S_mc,field).view(num_envs,1,3)
     
