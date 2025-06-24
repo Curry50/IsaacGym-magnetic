@@ -20,6 +20,12 @@ env:
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
+  # viewer cam:
+  viewer:
+    refEnv: 127
+    pos: [1, 0, 0.2]  # [m]
+    lookat: [0, 0, 0.2]  # [m]
+
 sim:
   dt: 0.02 # 1/50 s
   substeps: 2
