@@ -14,10 +14,10 @@ class MagneticUr5(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
 
-        self.damping = 0.15
-        self.max_episode_length = 600 # 600
+        self.damping = 0.5
+        self.max_episode_length = 900 # 600
 
-        self.cfg["env"]["numObservations"] = 20
+        self.cfg["env"]["numObservations"] = 21
         self.cfg["env"]["numActions"] = 5
 
         self.debug_viz = True
@@ -60,6 +60,13 @@ class MagneticUr5(VecTask):
 
         # reset/初始化
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+
+        if self.viewer != None:
+            p = self.cfg["env"]["viewer"]["pos"]
+            lookat = self.cfg["env"]["viewer"]["lookat"]
+            cam_pos = gymapi.Vec3(p[0], p[1], p[2])
+            cam_target = gymapi.Vec3(lookat[0], lookat[1], lookat[2])
+            self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
     def data_initialization(self):
         # 初始化ur5关节目标角度张量，ur5初始角度
@@ -114,10 +121,10 @@ class MagneticUr5(VecTask):
         self.theta_min = torch.pi/30
 
         # 缩放尺度
-        self.action_trans_scale = 0.01
-        self.action_rot_scale = 0.05
-        self.drag_force_scale = 4e-2
-        self.drag_torque_scale = 5e-6
+        self.action_trans_scale = 0.015
+        self.action_rot_scale = 0.6
+        self.drag_force_scale = 1e-3
+        self.drag_torque_scale = 9.5e-7
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -327,7 +334,7 @@ class MagneticUr5(VecTask):
 
         self.obs_buf = torch.cat((self.capsule_pos,self.target_pos,
                                   self.capsule_rot,self.target_rot,
-                                  self.capsule_vel,self.capsule_rot_vel),dim=-1)
+                                  self.magnet_pos,self.magnet_rot),dim=-1)
 
         return self.obs_buf
 
@@ -446,21 +453,21 @@ class MagneticUr5(VecTask):
         # 如果超出工作空间，重置环境
         if len(env_ids_ws) > 0:
             self.reset_idx(env_ids_ws)
-            self.gym.simulate(self.sim)
-            self.refresh_tensor()
-            self.last_capsule_states[env_ids_ws] = self.capsule_states[env_ids_ws] # 上一时刻胶囊的状态=这一时刻胶囊的状态
-            self.ur5_last_dof_pos[env_ids_ws] = self.ur5_dof_pos[env_ids_ws]
-            self.last_capsule_virtual_states[env_ids_ws] = self.capsule_virtual_states[env_ids_ws]  
+            # self.gym.simulate(self.sim)
+            # self.refresh_tensor()
+            # self.last_capsule_states[env_ids_ws] = self.capsule_states[env_ids_ws] # 上一时刻胶囊的状态=这一时刻胶囊的状态
+            # self.ur5_last_dof_pos[env_ids_ws] = self.ur5_dof_pos[env_ids_ws]
+            # self.last_capsule_virtual_states[env_ids_ws] = self.capsule_virtual_states[env_ids_ws]  
 
-        # 如果大于最大步数
+        # # 如果大于最大步数
         if len(env_ids_el) > 0:
             # 更新目标和buffer
             self.reset_idx(env_ids_el)
-            self.gym.simulate(self.sim)
-            self.refresh_tensor()
-            self.last_capsule_states[env_ids_el] = self.capsule_states[env_ids_el] # 上一时刻胶囊的状态=这一时刻胶囊的状态
-            self.ur5_last_dof_pos[env_ids_el] = self.ur5_dof_pos[env_ids_el]
-            self.last_capsule_virtual_states[env_ids_el] = self.capsule_virtual_states[env_ids_el]  
+            # self.gym.simulate(self.sim)
+            # self.refresh_tensor()
+            # self.last_capsule_states[env_ids_el] = self.capsule_states[env_ids_el] # 上一时刻胶囊的状态=这一时刻胶囊的状态
+            # self.ur5_last_dof_pos[env_ids_el] = self.ur5_dof_pos[env_ids_el]
+            # self.last_capsule_virtual_states[env_ids_el] = self.capsule_virtual_states[env_ids_el]  
 
         # if len(env_ids_d) > 0:
         #     self.reset_random_target(env_ids_d)
@@ -550,14 +557,14 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
                        d_min,theta_min,capsule_start_pos,ws_length):
     # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, float, float, Tensor, float) -> Tuple[Tensor, Tensor]
 
-    dist_reward_scale = -30
-    rot_reawrd_scale = -10
+    dist_reward_scale = 50
+    rot_reawrd_scale = 2
 
     d = torch.norm(to_target, p=2, dim=-1)
 
     d_arrived = d < d_min
 
-    rot_to_target_reward = torch.exp(-rot_reawrd_scale*abs(to_target_rot.squeeze()))*d_arrived
+    rot_to_target_reward = torch.exp(-rot_reawrd_scale*abs(to_target_rot.squeeze()))
     dist_to_target_reward = -dist_reward_scale*d
 
 
@@ -569,7 +576,7 @@ def compute_ur5_reward(reset_buf,progress_buf,max_episode_length,to_target,
                           (abs(capsule_pos[:,2]-capsule_start_pos[2])>ws_length),rewards-200,rewards)
 
     # 包含max_episode_length和工作空间的reset信息
-    reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),reset_buf)
+    reset_buf = torch.where(progress_buf >= max_episode_length,torch.ones_like(reset_buf),torch.zeros_like(reset_buf))
 
     reset_buf = torch.where(abs(capsule_pos[:,0]-capsule_start_pos[0])>ws_length,torch.ones_like(reset_buf),reset_buf)
     reset_buf = torch.where(abs(capsule_pos[:,1]-capsule_start_pos[1])>ws_length,torch.ones_like(reset_buf),reset_buf)
